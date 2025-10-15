@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formiga Samurai: Fúria da Lâmina</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            background: linear-gradient(to bottom, #0c142c, #1a202c);
+            color: #e2e8f0;
+            overflow: hidden;
+            touch-action: none; /* Disable double-tap zoom on mobile */
+        }
+        .game-container {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        canvas {
+            background: transparent;
+            display: block;
+            border-radius: 0.5rem;
+            border: 4px solid #4a5568;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .button {
+            background-color: #4a5568;
+            border: 2px solid #718096;
+            color: white;
+            padding: 1rem 1.5rem;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 1rem;
+            margin: 0.5rem;
+            cursor: pointer;
+            border-radius: 0.5rem;
+            transition: all 0.2s ease-in-out;
+            user-select: none; /* Prevents text selection on repeated clicks */
+        }
+        .button:hover, .button:focus {
+            background-color: #718096;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .button:active {
+            transform: translateY(1px);
+        }
+        #jumpBtn {
+            background-color: #38a169;
+            border-color: #68d391;
+        }
+        #attackBtn {
+            background-color: #c53030;
+            border-color: #f56565;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center h-screen">
+
+    <div class="game-container text-center">
+        <h1 class="text-4xl mb-2">Formiga Samurai</h1>
+        <div class="flex justify-between items-center text-xl mb-4 px-2">
+            <div>Pontos: <span id="score">0</span></div>
+            <div>Velocidade: <span id="speedDisplay">5</span>x</div>
+        </div>
+
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+
+        <div id="controls" class="mt-4">
+            <button id="jumpBtn" class="button">Pular (W)</button>
+            <button id="attackBtn" class="button">Atacar (Espaço)</button>
+        </div>
+        
+        <div id="gameOverScreen" class="hidden absolute inset-0 bg-black bg-opacity-75 flex flex-col items-center justify-center">
+             <h2 class="text-5xl text-red-500 mb-4">Fim de Jogo!</h2>
+             <p class="text-2xl mb-6">Sua pontuação final: <span id="finalScore">0</span></p>
+             <button id="restartBtn" class="button text-2xl py-4 px-8 bg-blue-600 border-blue-400">Jogar Novamente</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Setup Inicial ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const speedDisplayEl = document.getElementById('speedDisplay');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const finalScoreEl = document.getElementById('finalScore');
+        
+        // --- Controles ---
+        const jumpBtn = document.getElementById('jumpBtn');
+        const attackBtn = document.getElementById('attackBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        
+        let score = 0;
+        let gameSpeed = 5;
+        let baseSpeed = 5;
+        let isGameOver = false;
+        let frameCount = 0;
+
+        // --- Constantes do Jogo ---
+        const GRAVITY = 0.6;
+        const JUMP_FORCE = -15;
+        const PLAYER_WIDTH = 50;
+        const PLAYER_HEIGHT = 50;
+        
+        // --- Estado do Jogador ---
+        let player = {
+            x: 100,
+            y: canvas.height - PLAYER_HEIGHT,
+            width: PLAYER_WIDTH,
+            height: PLAYER_HEIGHT,
+            speedY: 0,
+            isJumping: false,
+            isAttacking: false,
+            attackTimer: 0
+        };
+
+        let platforms = [];
+        let obstacles = [];
+        let scenery = [];
+
+        // --- Funções de Desenho ---
+        function drawBackground() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#1c2a4f'); // Topo do céu noturno
+            gradient.addColorStop(0.5, '#2d3748'); // Meio
+            gradient.addColorStop(1, '#4a5568'); // Horizonte
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawScenery() {
+            ctx.fillStyle = '#1c2a4f'; // Cor da montanha escura
+            scenery.forEach(item => {
+                ctx.beginPath();
+                ctx.moveTo(item.x, item.y + item.height);
+                ctx.lineTo(item.x + item.width / 2, item.y);
+                ctx.lineTo(item.x + item.width, item.y + item.height);
+                ctx.closePath();
+                ctx.fill();
+            });
+        }
+
+        function drawPlayer() {
+            // Capa de Ninja
+            ctx.fillStyle = '#4A5568'; // Cinza escuro
+            ctx.beginPath();
+            ctx.moveTo(player.x + 20, player.y + 20); // Ponto no ombro
+            ctx.lineTo(player.x - 20, player.y + 30 + Math.sin(frameCount * 0.1) * 5); // Ponta de baixo da capa, com animação
+            ctx.lineTo(player.x + 20, player.y + 40); // Ponto na base do corpo
+            ctx.closePath();
+            ctx.fill();
+
+            // Corpo
+            ctx.fillStyle = '#c53030'; // Vermelho mais escuro
+            ctx.beginPath();
+            ctx.roundRect(player.x, player.y + 15, player.width - 10, player.height - 20, 10);
+            ctx.fill();
+
+            // Cabeça
+            ctx.fillStyle = '#e53e3e'; // Vermelho mais claro
+            ctx.beginPath();
+            ctx.roundRect(player.x + player.width - 25, player.y, 25, 25, 8);
+            ctx.fill();
+
+            // Olho
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(player.x + player.width - 15, player.y + 10, 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Katana
+            ctx.fillStyle = '#a0aec0'; // Cinza claro
+            if (player.isAttacking) {
+                ctx.fillRect(player.x + player.width, player.y + player.height / 2, 40, 4);
+            } else {
+                ctx.fillRect(player.x + player.width - 20, player.y - 15, 4, 30);
+            }
+        }
+
+        function drawPlatforms() {
+            platforms.forEach(platform => {
+                ctx.fillStyle = '#8b5a2b'; // Cor de bambu
+                ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                
+                // Detalhes do bambu
+                ctx.strokeStyle = '#654321';
+                ctx.lineWidth = 2;
+                for (let i = platform.x + 20; i < platform.x + platform.width; i += 60) {
+                    ctx.beginPath();
+                    ctx.moveTo(i, platform.y);
+                    ctx.lineTo(i, platform.y + platform.height);
+                    ctx.stroke();
+                }
+            });
+        }
+
+        function drawObstacles() {
+            obstacles.forEach(obstacle => {
+                if (obstacle.type === 'ground') {
+                    ctx.fillStyle = '#654321'; // Marrom escuro para os espinhos
+                    ctx.fillRect(obstacle.x, obstacle.y + obstacle.height - 10, obstacle.width, 10);
+                    const spikeWidth = obstacle.width / 3;
+                    for (let i = 0; i < 3; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(obstacle.x + i * spikeWidth, obstacle.y + obstacle.height - 10);
+                        ctx.lineTo(obstacle.x + (i + 0.5) * spikeWidth, obstacle.y);
+                        ctx.lineTo(obstacle.x + (i + 1) * spikeWidth, obstacle.y + obstacle.height - 10);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                } else if (obstacle.type === 'flying') {
+                    // Espírito flutuante
+                    ctx.fillStyle = '#9f7aea'; // Roxo
+                    ctx.beginPath();
+                    ctx.arc(obstacle.x + obstacle.width / 2, obstacle.y + obstacle.height / 2, obstacle.width / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#d6bcfa'; // Roxo claro (brilho)
+                    ctx.beginPath();
+                    ctx.arc(obstacle.x + obstacle.width / 2, obstacle.y + obstacle.height / 2, obstacle.width / 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+        }
+
+        // --- Lógica de Geração ---
+        function generateInitialPlatforms() {
+            platforms = []; let currentX = 0;
+            while (currentX < canvas.width + 100) {
+                const width = Math.random() * (300 - 150) + 150;
+                platforms.push({ x: currentX, y: canvas.height - 20, width: width, height: 20 });
+                currentX += width + Math.random() * (150 - 50) + 50;
+            }
+        }
+
+        function generateScenery() {
+            scenery = []; let currentX = 0;
+            while(currentX < canvas.width * 2) {
+                const height = Math.random() * 100 + 50;
+                const width = Math.random() * 200 + 100;
+                scenery.push({ x: currentX, y: canvas.height - height - 20, width: width, height: height });
+                currentX += width + Math.random() * 50;
+            }
+        }
+        
+        function generateObstacles() {
+            if (Math.random() < 0.025 && obstacles.length < 4) {
+                const isFlying = Math.random() > 0.5;
+                if(isFlying) {
+                    obstacles.push({ x: canvas.width, y: canvas.height - 180 + Math.random() * 100, width: 30, height: 30, type: 'flying'});
+                } else {
+                    obstacles.push({ x: canvas.width, y: canvas.height - 20 - 40, width: 45, height: 40, type: 'ground' });
+                }
+            }
+        }
+
+        // --- Lógica de Atualização ---
+        function updatePlayer() {
+            player.speedY += GRAVITY;
+            player.y += player.speedY;
+
+            let onPlatform = false;
+            platforms.forEach(platform => {
+                if (player.x < platform.x + platform.width &&
+                    player.x + player.width > platform.x &&
+                    player.y + player.height >= platform.y &&
+                    player.y + player.height <= platform.y + platform.height + player.speedY) {
+                    player.isJumping = false;
+                    player.y = platform.y - player.height;
+                    player.speedY = 0;
+                    onPlatform = true;
+                }
+            });
+
+            if (!onPlatform && player.y + player.height < canvas.height - 20) { player.isJumping = true; }
+            if (player.y > canvas.height) { endGame(); }
+        }
+
+        function updatePlatforms() {
+            platforms.forEach(platform => { platform.x -= gameSpeed; });
+            platforms = platforms.filter(platform => platform.x + platform.width > 0);
+            const lastPlatform = platforms[platforms.length - 1];
+            if (lastPlatform.x + lastPlatform.width < canvas.width) {
+                 const width = Math.random() * (300 - 150) + 150;
+                 platforms.push({ x: lastPlatform.x + lastPlatform.width + Math.random() * (150 - 50) + 50, y: canvas.height - 20, width: width, height: 20 });
+            }
+        }
+
+        function updateScenery() {
+            scenery.forEach(item => { item.x -= gameSpeed / 4; }); // Parallax
+            scenery = scenery.filter(item => item.x + item.width > 0);
+            const lastItem = scenery[scenery.length - 1];
+            if (lastItem && lastItem.x + lastItem.width < canvas.width) {
+                const height = Math.random() * 100 + 50;
+                const width = Math.random() * 200 + 100;
+                scenery.push({ x: lastItem.x + lastItem.width + Math.random() * 50, y: canvas.height - height - 20, width: width, height: height });
+            }
+        }
+        
+        function updateObstacles() {
+            obstacles.forEach(obstacle => { obstacle.x -= gameSpeed; });
+            obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
+        }
+        
+        function checkCollisions() {
+            obstacles.forEach(obstacle => {
+                if (player.x < obstacle.x + obstacle.width && player.x + player.width > obstacle.x &&
+                    player.y < obstacle.y + obstacle.height && player.y + player.height > obstacle.y) {
+                    if (player.isAttacking) {
+                        obstacles = obstacles.filter(o => o !== obstacle);
+                        score += 100; // Pontos por destruir
+                        scoreEl.textContent = score;
+                    } else {
+                        endGame();
+                    }
+                }
+            });
+        }
+        
+        function updateScoreAndSpeed() {
+             if (!player.isAttacking) {
+                // A velocidade aumenta com base na pontuação (que só vem da destruição)
+                if (score > 0 && score % 500 === 0 && gameSpeed === baseSpeed) {
+                    baseSpeed += 0.5;
+                    gameSpeed = baseSpeed * 2; // Boost
+                    setTimeout(() => { gameSpeed = baseSpeed; }, 1500);
+                }
+             }
+             speedDisplayEl.textContent = (gameSpeed).toFixed(1);
+        }
+
+        // --- Controle de Jogo ---
+        function jump() {
+            if (!player.isJumping && !isGameOver) {
+                player.speedY = JUMP_FORCE;
+                player.isJumping = true;
+            }
+        }
+
+        function attack() {
+            if (!player.isAttacking && !isGameOver) {
+                player.isAttacking = true;
+                gameSpeed = 0;
+                setTimeout(() => {
+                    player.isAttacking = false;
+                    gameSpeed = baseSpeed;
+                }, 500);
+            }
+        }
+        
+        function resetGame() {
+            score = 0; baseSpeed = 5; gameSpeed = 5; isGameOver = false;
+            scoreEl.textContent = score;
+            player.y = canvas.height - PLAYER_HEIGHT;
+            player.speedY = 0; player.isJumping = false;
+            obstacles = [];
+            generateInitialPlatforms(); generateScenery();
+            gameOverScreen.classList.add('hidden');
+            gameLoop();
+        }
+        
+        function endGame() {
+            isGameOver = true;
+            finalScoreEl.textContent = score;
+            gameOverScreen.style.top = `${canvas.offsetTop}px`;
+            gameOverScreen.style.left = `${canvas.offsetLeft}px`;
+            gameOverScreen.style.width = `${canvas.offsetWidth}px`;
+            gameOverScreen.style.height = `${canvas.offsetHeight}px`;
+            gameOverScreen.classList.remove('hidden');
+        }
+
+        // --- Loop Principal ---
+        function gameLoop() {
+            if (isGameOver) return;
+            frameCount++;
+            drawBackground();
+            updateScenery(); updatePlayer(); updatePlatforms();
+            updateObstacles(); generateObstacles(); checkCollisions();
+            updateScoreAndSpeed();
+            drawScenery(); drawPlatforms(); drawObstacles(); drawPlayer();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Event Listeners ---
+        jumpBtn.addEventListener('click', jump);
+        attackBtn.addEventListener('click', attack);
+        restartBtn.addEventListener('click', resetGame);
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyW' || e.code === 'ArrowUp') { jump(); }
+            if (e.code === 'Space') { e.preventDefault(); attack(); }
+        });
+        jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); jump(); });
+        attackBtn.addEventListener('touchstart', (e) => { e.preventDefault(); attack(); });
+        
+        // --- Iniciar Jogo ---
+        generateInitialPlatforms(); generateScenery(); gameLoop();
+    </script>
+
+</body>
+</html>
+
